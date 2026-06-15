@@ -9,8 +9,8 @@
     <title>melvoredit</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
     <link rel="stylesheet" href="main.css">
-    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js" integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj" crossorigin="anonymous"></script>
     <script src="pako.min.js"></script>
+    <script src="melvor-save.js"></script>
     <script src="main.js"></script>
 </head>
 
@@ -19,6 +19,9 @@
         <h1 class="display-4">Melvoredit</h1>
         <p class="lead">Import and export save data for <a href="http://melvoridle.com/" target="_blank">http://melvoridle.com/</a></p>
         <hr class="my-4">
+        <div id="msg" class="alert alert-danger" role="alert" style="display:none;"></div>
+
+        <!-- 1. Import -->
         <div class="row">
             <div class="col-3">
               <div class="nav flex-column nav-pills" aria-orientation="vertical">
@@ -26,27 +29,151 @@
               </div>
             </div>
             <div class="col-9">
-                <textarea class="form-control" id="txtImport" rows="2"></textarea>
+                <textarea class="form-control" id="txtImport" rows="2" placeholder="Paste your Melvor Idle save export here"></textarea>
             </div>
         </div>
-        <div class="row">
-            <div class="col-3">
-              <div class="nav flex-column nav-pills" aria-orientation="vertical">
-                <a class="nav-link">2. Edit</a>
-              </div>
+
+        <!-- 2. Friendly editor (hidden until a save is imported) -->
+        <div id="editor" style="display:none;">
+
+            <div class="card text-left mt-3">
+                <div class="card-header">Character</div>
+                <div class="card-body">
+                    <div class="form-group row mb-2">
+                        <label for="charName" class="col-4 col-form-label col-form-label-sm text-right">Name</label>
+                        <div class="col-8"><input type="text" id="charName" class="form-control form-control-sm"></div>
+                    </div>
+                    <div class="font-weight-bold small mt-2 mb-1">Currencies</div>
+                    <div id="currenciesBody"></div>
+                </div>
             </div>
-            <div class="col-9">
-                <textarea class="form-control" disabled id="txtEdit" rows="10"></textarea>
+
+            <div class="card text-left mt-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Skills</span>
+                    <button id="maxSkillsBtn" class="btn btn-sm btn-outline-secondary" type="button" title="Raise every skill below level 99 up to 99 (won't lower higher skills)">Set all to level 99</button>
+                </div>
+                <div class="card-body p-0" style="overflow-x:auto;">
+                    <table class="table table-sm table-striped mb-0" id="skillsTable">
+                        <thead>
+                            <tr>
+                                <th class="pl-3">Skill</th>
+                                <th style="width:7rem;">Level</th>
+                                <th style="width:11rem;">XP</th>
+                                <th style="width:12rem;">Mastery Pool XP</th>
+                                <th style="width:9rem;">Action Mastery</th>
+                            </tr>
+                        </thead>
+                        <tbody id="skillsBody"></tbody>
+                    </table>
+                </div>
+                <div class="card-footer text-muted small">
+                    Level is derived from XP (editing one updates the other). Combat skills have no
+                    mastery. "Max all" sets every action you've trained in that skill to mastery
+                    level 99. Equipment and other details live in the Advanced editor below.
+                </div>
             </div>
+
+            <div class="card text-left mt-3">
+                <div class="card-header">Bank <small class="text-muted" id="bankCount"></small></div>
+                <div class="card-body">
+                    <div class="form-row align-items-center mb-2">
+                        <div class="col">
+                            <input type="text" id="bankAddName" list="itemNames" class="form-control form-control-sm" placeholder="Item name to add (type for suggestions)">
+                        </div>
+                        <div class="col-auto">
+                            <input type="number" id="bankAddQty" min="1" value="1" class="form-control form-control-sm" style="width:9rem;" placeholder="Qty">
+                        </div>
+                        <div class="col-auto">
+                            <button id="bankAddBtn" class="btn btn-sm btn-primary" type="button">Add item</button>
+                        </div>
+                    </div>
+                    <div class="form-row align-items-center mb-2">
+                        <div class="col">
+                            <input type="text" id="bankFilter" class="form-control form-control-sm" placeholder="Filter items by name…">
+                        </div>
+                        <div class="col-auto">
+                            <input type="number" id="bankBulkQty" min="0" class="form-control form-control-sm" style="width:9rem;" placeholder="Qty">
+                        </div>
+                        <div class="col-auto">
+                            <button id="bankBulkBtn" class="btn btn-sm btn-outline-secondary" type="button" title="Set the quantity of every currently-shown item">Set shown to</button>
+                        </div>
+                    </div>
+                    <div id="bankBody" style="max-height:340px; overflow-y:auto;"></div>
+                </div>
+                <div class="card-footer text-muted small">
+                    Edit a quantity, or press &times; to remove an item. You can only add items already
+                    known to your save (their IDs must be in the save's registry).
+                </div>
+            </div>
+            <datalist id="itemNames"></datalist>
+            <div id="equipDatalists" hidden></div>
+
+            <div id="townshipCard" class="card text-left mt-3" style="display:none;">
+                <div class="card-header">Township</div>
+                <div class="card-body">
+                    <div class="form-group row mb-2">
+                        <label class="col-4 col-form-label col-form-label-sm text-right" for="townHealth">Town Health (%)</label>
+                        <div class="col-8"><input type="number" id="townHealth" min="0" max="100" class="form-control form-control-sm"></div>
+                    </div>
+                    <div class="font-weight-bold small mt-2 mb-1">Resources</div>
+                    <div id="townshipResources"></div>
+                </div>
+                <div class="card-footer text-muted small">
+                    Township resources accumulate slowly in-game, so this is handy. Storage caps still
+                    apply when Melvor loads the save, so very large values may be clamped. Buildings,
+                    worship and town layout remain in the Advanced editor.
+                </div>
+            </div>
+
+            <div id="equipmentCard" class="card text-left mt-3" style="display:none;">
+                <div class="card-header">Equipment <small class="text-muted" id="equipSetLabel"></small></div>
+                <div class="card-body p-0" style="overflow-x:auto;">
+                    <table class="table table-sm table-striped mb-0" id="equipTable" style="min-width:520px;">
+                        <thead>
+                            <tr>
+                                <th class="pl-3" style="width:9rem;">Slot</th>
+                                <th>Equipped item</th>
+                                <th style="width:9rem;">Qty</th>
+                                <th style="width:3rem;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="equipBody"></tbody>
+                    </table>
+                </div>
+                <div class="card-footer text-muted small">
+                    Equip any item your save already knows about (type for suggestions); &times; clears a
+                    slot. Spells, prayers, and equipment sets beyond the active one stay in the Advanced editor.
+                </div>
+            </div>
+
+            <details class="mt-3 text-left">
+                <summary class="font-weight-bold" style="cursor:pointer;">Advanced: raw JSON (everything)</summary>
+                <p class="text-muted small mt-2 mb-1">
+                    Full save as JSON. ID-keyed data is tagged so re-export stays byte-perfect:
+                    <code>{ "#map": [[key, value], ...] }</code>,
+                    <code>{ "#set": [...] }</code>,
+                    <code>{ "#bytes": [...] }</code>. Edit values, keep the tags. Changes here update
+                    the fields above when you click out of the box.
+                </p>
+                <textarea class="form-control" id="txtEdit" rows="16"></textarea>
+            </details>
         </div>
-        <div class="row">
+
+        <!-- 3. Export -->
+        <div class="row mt-3">
             <div class="col-3">
               <div class="nav flex-column nav-pills" aria-orientation="vertical">
                 <a class="nav-link">3. Export</a>
               </div>
             </div>
             <div class="col-9">
-                <textarea class="form-control" disabled id="txtExport" rows="2"></textarea>
+                <textarea class="form-control" disabled id="txtExport" rows="2" placeholder="Your new save string appears here"></textarea>
+                <div class="mt-2 d-flex align-items-center">
+                    <button id="copyBtn" class="btn btn-sm btn-primary mr-2" type="button">Copy</button>
+                    <button id="downloadBtn" class="btn btn-sm btn-outline-primary" type="button">Download .txt</button>
+                    <span id="copyMsg" class="text-success small ml-2"></span>
+                </div>
             </div>
         </div>
     </div>

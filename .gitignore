@@ -1,0 +1,5 @@
+# Personal save exports — don't commit your character data
+mysave*.txt
+mysaveOutput.txt
+tmp_save.txt
+*.save
